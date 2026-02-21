@@ -11,7 +11,10 @@ import zipfile
 from flask import Flask, request, render_template, send_file, jsonify
 from pypdf import PdfReader, PdfWriter, generic
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates"),
+)
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB upload limit
 
 TEMPLATES_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -37,26 +40,29 @@ TENT_PDF        = _find_template("SLS_Name_Tent.pdf")
 
 
 # ── Startup check ─────────────────────────────────────────────────────────────
-# Logs clearly which template files are present or missing when the server starts.
-# Check Render's log tab — you will see exactly what is found/missing.
-
 def _check_templates():
     all_ok = True
     for label, path in [("Staff.pdf", STAFF_PDF),
                         ("Participant.pdf", PARTICIPANT_PDF),
                         ("SLS_Name_Tent.pdf", TENT_PDF)]:
         if os.path.exists(path):
-            print(f"[SLS] Template OK:      {label}  ({path})")
+            print(f"[SLS] Template OK:      {label}  ({path})", flush=True)
         else:
-            print(f"[SLS] Template MISSING: {label}  ({path})")
+            print(f"[SLS] Template MISSING: {label}  ({path})", flush=True)
             all_ok = False
     if all_ok:
-        print("[SLS] All templates found. Ready.")
+        print("[SLS] All templates found. Ready.", flush=True)
     else:
-        print("[SLS] WARNING: one or more templates are missing — /generate will fail.")
+        print("[SLS] WARNING: one or more templates are missing.", flush=True)
     return all_ok
 
-_templates_ok = _check_templates()
+try:
+    _templates_ok = _check_templates()
+except Exception as _e:
+    import traceback
+    print(f"[SLS] Startup check failed: {_e}", flush=True)
+    print(traceback.format_exc(), flush=True)
+    _templates_ok = False
 
 
 # ── Health check route ────────────────────────────────────────────────────────
@@ -183,7 +189,13 @@ def parse_plain(text):
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    try:
+        return render_template("index.html")
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[SLS] index() error:\n{tb}", flush=True)
+        return f"<pre>Server error loading page:\n{tb}</pre>", 500
 
 
 @app.route("/generate", methods=["POST"])
@@ -254,7 +266,10 @@ def generate():
                              mimetype="application/zip")
 
     except Exception as e:
-        return jsonify(error=f"PDF generation failed: {e}"), 500
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[SLS] PDF generation error:\n{tb}")
+        return jsonify(error=f"PDF generation failed: {e}", traceback=tb), 500
 
 
 if __name__ == "__main__":
