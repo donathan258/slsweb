@@ -14,10 +14,26 @@ from pypdf import PdfReader, PdfWriter, generic
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB upload limit
 
-TEMPLATES_DIR   = os.path.dirname(os.path.abspath(__file__))
-STAFF_PDF      = os.path.join(TEMPLATES_DIR, "resources/Staff.pdf")
-PARTICIPANT_PDF = os.path.join(TEMPLATES_DIR, "resources/Participant.pdf")
-TENT_PDF       = os.path.join(TEMPLATES_DIR, "resources/SLS_Name_Tent.pdf")
+TEMPLATES_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def _find_template(filename):
+    """Locate a template PDF by checking the app directory and common
+    subdirectories. Returns the first path where the file exists."""
+    candidates = [
+        os.path.join(TEMPLATES_DIR, filename),
+        os.path.join(TEMPLATES_DIR, "resources", filename),
+        os.path.join(TEMPLATES_DIR, "templates", filename),
+        os.path.join(TEMPLATES_DIR, "static", filename),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    # Return the base path so error messages show a useful location
+    return candidates[0]
+
+STAFF_PDF       = _find_template("Staff.pdf")
+PARTICIPANT_PDF = _find_template("Participant.pdf")
+TENT_PDF        = _find_template("SLS_Name_Tent.pdf")
 
 
 # ── Startup check ─────────────────────────────────────────────────────────────
@@ -26,9 +42,9 @@ TENT_PDF       = os.path.join(TEMPLATES_DIR, "resources/SLS_Name_Tent.pdf")
 
 def _check_templates():
     all_ok = True
-    for label, path in [("resources/Staff.pdf", STAFF_PDF),
-                        ("resources/Participant.pdf", PARTICIPANT_PDF),
-                        ("resources/SLS_Name_Tent.pdf", TENT_PDF)]:
+    for label, path in [("Staff.pdf", STAFF_PDF),
+                        ("Participant.pdf", PARTICIPANT_PDF),
+                        ("SLS_Name_Tent.pdf", TENT_PDF)]:
         if os.path.exists(path):
             print(f"[SLS] Template OK:      {label}  ({path})")
         else:
@@ -50,11 +66,11 @@ _templates_ok = _check_templates()
 def healthcheck():
     status = {}
     all_ok = True
-    for label, path in [("resources/Staff.pdf", STAFF_PDF),
-                        ("resources/Participant.pdf", PARTICIPANT_PDF),
-                        ("resources/SLS_Name_Tent.pdf", TENT_PDF)]:
+    for label, path in [("Staff.pdf", STAFF_PDF),
+                        ("Participant.pdf", PARTICIPANT_PDF),
+                        ("SLS_Name_Tent.pdf", TENT_PDF)]:
         found = os.path.exists(path)
-        status[label] = "OK" if found else f"MISSING — expected at {path}"
+        status[label] = f"OK — {path}" if found else f"MISSING — looked at {path}"
         if not found:
             all_ok = False
     status["templates_dir"] = TEMPLATES_DIR
@@ -173,9 +189,9 @@ def index():
 @app.route("/generate", methods=["POST"])
 def generate():
     # Guard: fail fast with a clear message if templates are missing
-    missing = [name for name, path in [("resources/Staff.pdf", STAFF_PDF),
-                                        ("resources/Participant.pdf", PARTICIPANT_PDF),
-                                        ("resources/SLS_Name_Tent.pdf", TENT_PDF)]
+    missing = [name for name, path in [("Staff.pdf", STAFF_PDF),
+                                        ("Participant.pdf", PARTICIPANT_PDF),
+                                        ("SLS_Name_Tent.pdf", TENT_PDF)]
                if not os.path.exists(path)]
     if missing:
         return jsonify(error=(
