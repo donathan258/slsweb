@@ -1,30 +1,30 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <link rel="stylesheet" href="https://use.typekit.net/avz8xwn.css">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SLS Generator — Order of the Arrow</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet">
+
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --cream:    #F7F3EC;
+      --cream:    #e6e7e8;
       --parchment:#EDE5D4;
-      --gold:     #8B6914;
-      --gold-lt:  #C49A2A;
-      --bark:     #2C1F0E;
+      --gold:     ;
+      --gold-lt:  #36454F;
+      --bark:     #650812;
       --moss:     #2D4A2D;
-      --red:      #8B1A1A;
-      --border:   #C4A96B;
+      --red:      #650812;
+      --border:   #36454F;
       --shadow:   rgba(44,31,14,0.18);
     }
 
     html { font-size: 16px; scroll-behavior: smooth; }
 
     body {
-      font-family: 'Crimson Pro', Georgia, serif;
+      font-family: 'museo-sans', sans-serif;
       background: var(--cream);
       color: var(--bark);
       min-height: 100vh;
@@ -61,7 +61,7 @@
     }
 
     .header-eyebrow {
-      font-family: 'Cinzel', serif;
+      font-family: 'museo-slab', serif;
       font-size: 0.7rem;
       letter-spacing: 0.25em;
       color: var(--gold-lt);
@@ -70,12 +70,12 @@
     }
 
     .header-title {
-      font-family: 'Cinzel', serif;
-      font-size: clamp(1.4rem, 3.5vw, 2.2rem);
-      font-weight: 700;
-      color: var(--cream);
-      line-height: 1.2;
-      letter-spacing: 0.04em;
+	font-family: 'museo-slab', serif;
+	font-size: clamp(1.4rem, 3.5vw, 2.2rem);
+	font-weight: 700;
+	color: var(--cream);
+	line-height: 1.2;
+	letter-spacing: 0.04em;
     }
 
     .header-title span {
@@ -83,11 +83,11 @@
     }
 
     .header-sub {
-      font-family: 'Crimson Pro', serif;
-      font-style: italic;
-      font-size: 1.05rem;
-      color: #A89070;
-      margin-top: 0.35rem;
+	font-family: 'museo-slab', serif;
+	font-style: normal;
+	font-size: 1.05rem;
+	color: #D9365A;
+	margin-top: 0.35rem;
     }
 
     /* ── Main layout ── */
@@ -122,7 +122,7 @@
 
     /* ── Section heading ── */
     .section-label {
-      font-family: 'Cinzel', serif;
+      font-family: 'museo-slab', serif;
       font-size: 0.65rem;
       letter-spacing: 0.22em;
       text-transform: uppercase;
@@ -153,18 +153,19 @@
     }
 
     label .hint {
-      font-weight: 300;
-      font-style: italic;
-      color: #8A7355;
-      font-size: 0.82rem;
+	font-family: 'museo-sans', sans-serif;
+	font-weight: 300;
+	font-style: italic;
+	color: #8A7355;
+	font-size: 0.82rem;
     }
 
     input[type="text"],
     textarea,
     select {
       width: 100%;
-      font-family: 'Crimson Pro', serif;
-      font-size: 1rem;
+      font-family: 'museo-sans', sans-serif;
+      font-size: .8rem;
       color: var(--bark);
       background: var(--cream);
       border: 1px solid var(--border);
@@ -184,7 +185,7 @@
       resize: vertical;
       min-height: 160px;
       font-size: 0.92rem;
-      font-family: 'Courier New', monospace;
+      font-family: 'museo-sans', sans-serif;
       line-height: 1.5;
     }
 
@@ -281,7 +282,7 @@
     .btn-generate {
       width: 100%;
       padding: 1rem;
-      font-family: 'Cinzel', serif;
+      font-family: 'Museo Slab 500', serif;
       font-size: 0.95rem;
       letter-spacing: 0.12em;
       text-transform: uppercase;
@@ -358,7 +359,7 @@
     .format-hint {
       margin-top: 0.7rem;
       font-size: 0.82rem;
-      font-family: 'Courier New', monospace;
+      font-family: 'museo-sans', sans-serif;
       background: var(--parchment);
       border: 1px solid var(--border);
       border-radius: 2px;
@@ -388,9 +389,9 @@
 <body>
 
 <header>
-  <p class="header-eyebrow">Order of the Arrow</p>
-  <h1 class="header-title">Section Leadership <span>Seminar</span></h1>
-  <p class="header-sub">Certificate &amp; Name Tent Generator</p>
+  <img src="header2.png" alt="" width="720" height="118" />
+  
+<p class="header-sub">SLS Certificate &amp; Name Tent Generator</p>
 </header>
 
 <main>
@@ -401,8 +402,8 @@
       <p class="section-label">Settings</p>
 
       <div class="field">
-        <label for="section">Section <span class="hint">— applied to all certificates</span></label>
-        <input type="text" id="section" name="section" placeholder="e.g. SE-5" autocomplete="off">
+        <label for="section">Section <span class="hint">- applied to all certificates</span></label>
+        <input type="text" id="section" name="section" placeholder="e.g. Section E5" autocomplete="off">
       </div>
 
       <div class="field">
@@ -447,29 +448,23 @@
       <div class="field">
         <label for="input_text">Input Data</label>
         <textarea id="input_text" name="input_text" spellcheck="false"
-          placeholder="Name,Lodge,Role&#10;Donathan Linebrink,Shenandoah,Staff&#10;David Gosik,Blue Heron,Participant"></textarea>
+          placeholder="Name,Lodge,Role&#10;Cortland Bolles,Wewikit Lodge,Staff&#10;Christopher Groves,Tipisa Lodge,Participant&#10;Brea Baygents,Wewikit Lodge,Participant"></textarea>
         <div class="format-hint" id="formatHint">
           CSV: &nbsp;Name,Lodge,Role<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Donathan Linebrink,Shenandoah,Staff<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;David Gosik,Blue Heron,Participant
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Cortland Bolles,Wewikit Lodge,Staff<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Christopher Groves,Tipisa Lodge,Participant<br>
+		  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Brea Baygents,Wewikit Lodge,Participant
         </div>
       </div>
 
       <button type="submit" class="btn-generate" id="submitBtn">Generate PDF</button>
-
-      <div class="status-bar loading" id="statusLoading">
-        <div class="spinner"></div>
-        <span>Generating your documents&hellip;</span>
-      </div>
-      <div class="status-bar error" id="statusError"></div>
-      <div class="status-bar success" id="statusSuccess"></div>
-    </div>
+</div>
 
   </form>
 </main>
 
 <footer>
-  Section Leadership Seminar &mdash; Order of the Arrow, Boy Scouts of America
+  Section Leadership Seminar &dash; Order of the Arrow, Scouting America
 </footer>
 
 <script>
