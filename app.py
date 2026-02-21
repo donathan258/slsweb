@@ -19,9 +19,9 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB upload limit
 
 TEMPLATES_DIR = os.path.dirname(os.path.abspath(__file__))
-STAFF_PDF      = os.path.join(TEMPLATES_DIR, "Staff.pdf")
-PARTICIPANT_PDF = os.path.join(TEMPLATES_DIR, "Participant.pdf")
-TENT_PDF       = os.path.join(TEMPLATES_DIR, "SLS_Name_Tent.pdf")
+STAFF_PDF      = os.path.join(TEMPLATES_DIR, "resources/Staff.pdf")
+PARTICIPANT_PDF = os.path.join(TEMPLATES_DIR, "resources/Participant.pdf")
+TENT_PDF       = os.path.join(TEMPLATES_DIR, "resources/SLS_Name_Tent.pdf")
 
 
 # ── PDF Helpers (identical to desktop app) ───────────────────────────────────
