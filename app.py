@@ -1,6 +1,5 @@
 """
 SLS Certificate & Name Tent Generator — Flask Web App
-Reuses all PDF generation logic from the desktop app unchanged.
 """
 
 import csv
@@ -9,22 +8,61 @@ import os
 import tempfile
 import zipfile
 
-from flask import (
-    Flask, request, render_template,
-    send_file, jsonify
-)
+from flask import Flask, request, render_template, send_file, jsonify
 from pypdf import PdfReader, PdfWriter, generic
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB upload limit
 
-TEMPLATES_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATES_DIR   = os.path.dirname(os.path.abspath(__file__))
 STAFF_PDF      = os.path.join(TEMPLATES_DIR, "resources/Staff.pdf")
 PARTICIPANT_PDF = os.path.join(TEMPLATES_DIR, "resources/Participant.pdf")
 TENT_PDF       = os.path.join(TEMPLATES_DIR, "resources/SLS_Name_Tent.pdf")
 
 
-# ── PDF Helpers (identical to desktop app) ───────────────────────────────────
+# ── Startup check ─────────────────────────────────────────────────────────────
+# Logs clearly which template files are present or missing when the server starts.
+# Check Render's log tab — you will see exactly what is found/missing.
+
+def _check_templates():
+    all_ok = True
+    for label, path in [("resources/Staff.pdf", STAFF_PDF),
+                        ("resources/Participant.pdf", PARTICIPANT_PDF),
+                        ("resources/SLS_Name_Tent.pdf", TENT_PDF)]:
+        if os.path.exists(path):
+            print(f"[SLS] Template OK:      {label}  ({path})")
+        else:
+            print(f"[SLS] Template MISSING: {label}  ({path})")
+            all_ok = False
+    if all_ok:
+        print("[SLS] All templates found. Ready.")
+    else:
+        print("[SLS] WARNING: one or more templates are missing — /generate will fail.")
+    return all_ok
+
+_templates_ok = _check_templates()
+
+
+# ── Health check route ────────────────────────────────────────────────────────
+# Visit  /healthcheck  in your browser after deploying to see the exact status.
+
+@app.route("/healthcheck")
+def healthcheck():
+    status = {}
+    all_ok = True
+    for label, path in [("resources/Staff.pdf", STAFF_PDF),
+                        ("resources/Participant.pdf", PARTICIPANT_PDF),
+                        ("resources/SLS_Name_Tent.pdf", TENT_PDF)]:
+        found = os.path.exists(path)
+        status[label] = "OK" if found else f"MISSING — expected at {path}"
+        if not found:
+            all_ok = False
+    status["templates_dir"] = TEMPLATES_DIR
+    status["ready"] = all_ok
+    return jsonify(status), 200 if all_ok else 500
+
+
+# ── PDF Helpers ───────────────────────────────────────────────────────────────
 
 def fill_cert_flatten(template_path, field_values, output_path):
     reader = PdfReader(template_path)
@@ -101,7 +139,7 @@ def generate_name_tents(entries, output_path):
         build_merged_pdf(pages, output_path)
 
 
-# ── CSV / Text Parsing ───────────────────────────────────────────────────────
+# ── Parsing ───────────────────────────────────────────────────────────────────
 
 def parse_csv(text):
     entries = []
@@ -125,7 +163,7 @@ def parse_plain(text):
     return entries
 
 
-# ── Routes ───────────────────────────────────────────────────────────────────
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -134,13 +172,23 @@ def index():
 
 @app.route("/generate", methods=["POST"])
 def generate():
-    # ── Parse form data ──
+    # Guard: fail fast with a clear message if templates are missing
+    missing = [name for name, path in [("resources/Staff.pdf", STAFF_PDF),
+                                        ("resources/Participant.pdf", PARTICIPANT_PDF),
+                                        ("resources/SLS_Name_Tent.pdf", TENT_PDF)]
+               if not os.path.exists(path)]
+    if missing:
+        return jsonify(error=(
+            f"Server configuration error: the following template files are "
+            f"missing from the server: {', '.join(missing)}. "
+            f"They must be committed to the repository and pushed to Render."
+        )), 500
+
     section     = request.form.get("section", "").strip()
-    output_type = request.form.get("output_type", "both")   # certificates | tents | both
-    input_mode  = request.form.get("input_mode", "csv")     # csv | plain
+    output_type = request.form.get("output_type", "both")
+    input_mode  = request.form.get("input_mode", "csv")
 
     raw_text = ""
-    # File upload takes priority over pasted text
     uploaded = request.files.get("csv_file")
     if uploaded and uploaded.filename:
         raw_text = uploaded.read().decode("utf-8-sig")
@@ -158,7 +206,6 @@ def generate():
     if not entries:
         return jsonify(error="No valid names found in the input."), 400
 
-    # ── Generate PDFs into a temp directory ──
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             cert_path = os.path.join(tmpdir, "Certificates.pdf")
@@ -172,31 +219,23 @@ def generate():
             if do_tents:
                 generate_name_tents(entries, tent_path)
 
-            # ── Single PDF: return directly ──
             if output_type == "certificates":
-                return send_file(
-                    cert_path, as_attachment=True,
-                    download_name="Certificates.pdf",
-                    mimetype="application/pdf"
-                )
+                return send_file(cert_path, as_attachment=True,
+                                 download_name="Certificates.pdf",
+                                 mimetype="application/pdf")
             if output_type == "tents":
-                return send_file(
-                    tent_path, as_attachment=True,
-                    download_name="Name_Tents.pdf",
-                    mimetype="application/pdf"
-                )
+                return send_file(tent_path, as_attachment=True,
+                                 download_name="Name_Tents.pdf",
+                                 mimetype="application/pdf")
 
-            # ── Both: zip them together ──
             zip_path = os.path.join(tmpdir, "SLS_Documents.zip")
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.write(cert_path, "Certificates.pdf")
                 zf.write(tent_path, "Name_Tents.pdf")
 
-            return send_file(
-                zip_path, as_attachment=True,
-                download_name="SLS_Documents.zip",
-                mimetype="application/zip"
-            )
+            return send_file(zip_path, as_attachment=True,
+                             download_name="SLS_Documents.zip",
+                             mimetype="application/zip")
 
     except Exception as e:
         return jsonify(error=f"PDF generation failed: {e}"), 500
