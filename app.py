@@ -116,80 +116,77 @@ except Exception as _e:
 # ── PDF helpers ───────────────────────────────────────────────────────────────
 
 def fill_and_flatten(template_path, field_values, output_path):
-    """Fill PDF form fields with correct Museo font rendering and flatten.
+    """Fill PDF form fields and flatten to static, uneditable content.
 
-    Flow:
-    1. Open template with fitz; register Museo fonts into page resources
-       (only if font files are present in FONTS)
-    2. Set widget values; fitz writes /Helv fallback into AP streams
-    3. Save to temp file; reopen with pypdf and patch AP streams to
-       replace /Helv with the correct Museo font name — fitz now has
-       that font registered in page resources so it resolves correctly
-    4. Reopen patched file with fitz and call bake() to stamp AP content
-       into the page as static, uneditable graphics
+    If Museo font files are present in FONTS:
+      - Registers them into page resources
+      - After fitz fills fields (writing /Helv as fallback), patches each
+        AP stream using set_data() to replace /Helv with the correct Museo
+        font name, then bakes
+    If Museo fonts are absent:
+      - Explicitly sets widget.text_font = "Helv" before update() so fitz
+        writes a valid AP stream (without this, bake() produces blank fields)
+      - Bakes directly — output uses Helvetica but is not blank
     """
-    # ── Step 1 & 2: fill widgets ──────────────────────────────────────────
     doc = fitz.open(template_path)
     page = doc[0]
 
-    # Map each widget to its intended font (from the /DA string)
+    # Record each widget's intended font before we touch anything
     widget_fonts = {}
     for w in page.widgets():
         widget_fonts[w.field_name] = (w.text_font, w.text_fontsize)
 
-    # Register Museo fonts into page resources so bake() can find them
+    # Register any available Museo fonts into page resources
     for font_name, font_bytes in FONTS.items():
         page.insert_font(fontname=font_name, fontbuffer=font_bytes)
 
-    # Fill values (fitz will write /Helv into AP streams — we patch below)
+    # Fill widget values; fall back to Helv when the intended font is unavailable
+    # so fitz writes a valid AP stream (blank fields result otherwise)
     for w in page.widgets():
-        if w.field_name in field_values:
-            w.field_value = field_values[w.field_name]
-            w.update()
+        if w.field_name not in field_values:
+            continue
+        w.field_value = field_values[w.field_name]
+        if widget_fonts[w.field_name][0] not in FONTS:
+            w.text_font = "Helv"
+        w.update()
 
     tmp1 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
     tmp1.close()
     doc.save(tmp1.name)
     doc.close()
 
-    # ── Step 3: patch AP streams if we have the fonts ─────────────────────
+    # If Museo fonts are available, patch AP streams to use them
     if FONTS:
         reader = PdfReader(tmp1.name)
         writer = PdfWriter()
         writer.append(reader)
-        page_w = writer.pages[0]
 
-        for annot_ref in page_w.get("/Annots", []):
+        for annot_ref in writer.pages[0].get("/Annots", []):
             annot = annot_ref.get_object()
             field_name = str(annot.get("/T", ""))
             if field_name not in widget_fonts:
                 continue
             intended_font, font_size = widget_fonts[field_name]
             if intended_font not in FONTS:
-                continue  # font not available, leave Helv
-
+                continue
             ap = annot.get("/AP")
             if not ap:
                 continue
-            ap_obj = ap.get_object()
-            n = ap_obj.get("/N")
+            n = ap.get_object().get("/N")
             if not n:
                 continue
             n_obj = n.get_object()
             try:
                 stream = n_obj.get_data()
-                # Replace whatever fallback font fitz used with the correct one
                 fixed = re.sub(
                     rb"/[A-Za-z0-9_-]+\s+[\d.]+\s+Tf",
                     f"/{intended_font} {font_size} Tf".encode(),
-                    stream,
-                    count=1,
+                    stream, count=1,
                 )
                 if fixed != stream:
-                    n_obj._data   = fixed
-                    n_obj._stream = fixed
+                    n_obj.set_data(fixed)   # correct pypdf API
             except Exception:
-                pass  # leave stream unpatched on error
+                pass
 
         tmp2 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
         tmp2.close()
@@ -200,7 +197,6 @@ def fill_and_flatten(template_path, field_values, output_path):
     else:
         bake_src = tmp1.name
 
-    # ── Step 4: bake to static content ───────────────────────────────────
     doc3 = fitz.open(bake_src)
     doc3.bake()
     doc3.save(output_path, garbage=4, deflate=True)
