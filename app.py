@@ -116,102 +116,154 @@ except Exception as _e:
 # ── PDF helpers ───────────────────────────────────────────────────────────────
 
 def fill_and_flatten(template_path, field_values, output_path):
-    """Fill PDF form fields and flatten to static, uneditable content.
+    """Fill PDF form fields and flatten by merging AP streams into page content.
 
-    If Museo font files are present in FONTS:
-      - Registers them into page resources
-      - After fitz fills fields (writing /Helv as fallback), patches each
-        AP stream using set_data() to replace /Helv with the correct Museo
-        font name, then bakes
-    If Museo fonts are absent:
-      - Explicitly sets widget.text_font = "Helv" before update() so fitz
-        writes a valid AP stream (without this, bake() produces blank fields)
-      - Bakes directly — output uses Helvetica but is not blank
+    Uses pypdf to fill fields, which preserves the original Museo font AP streams
+    created by the PDF authoring tool. Copies the AcroForm DR fonts into page
+    resources, then stamps each annotation's appearance stream directly into the
+    page content. Result: fully static, uneditable PDF with proper Unicode text
+    (no CID encoding) that renders correctly in Preview, Adobe Reader, and Chrome.
+
+    No fitz re-rendering is used, so the font rendering is 100% determined by
+    what was in the original AP stream — Museo if the font files are present,
+    with correct text regardless.
     """
-    doc = fitz.open(template_path)
-    page = doc[0]
+    from pypdf.generic import (
+        ArrayObject, NameObject, DecodedStreamObject, DictionaryObject
+    )
 
-    # Record each widget's intended font before we touch anything
-    widget_fonts = {}
-    for w in page.widgets():
-        widget_fonts[w.field_name] = (w.text_font, w.text_fontsize)
+    # ── Step 1: fill fields ───────────────────────────────────────────────────
+    reader = PdfReader(template_path)
+    writer = PdfWriter()
+    writer.append(reader)
 
-    # Register any available Museo fonts into page resources
-    for font_name, font_bytes in FONTS.items():
-        page.insert_font(fontname=font_name, fontbuffer=font_bytes)
-
-    # Fill widget values; fall back to Helv when the intended font is unavailable
-    # so fitz writes a valid AP stream (blank fields result otherwise)
-    for w in page.widgets():
-        if w.field_name not in field_values:
-            continue
-        w.field_value = field_values[w.field_name]
-        if widget_fonts[w.field_name][0] not in FONTS:
-            w.text_font = "Helv"
-        w.update()
+    # update_page_form_field_values fails on the tent template (no /DR).
+    # In that case, use fitz to fill the widgets (it tolerates missing /DR),
+    # which generates valid AP streams we can then merge below.
+    filled_via_fitz = False
+    try:
+        writer.update_page_form_field_values(
+            writer.pages[0], field_values, auto_regenerate=False
+        )
+    except Exception:
+        filled_via_fitz = True
 
     tmp1 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
     tmp1.close()
-    doc.save(tmp1.name)
-    doc.close()
 
-    # If Museo fonts are available, patch AP streams to use them
-    if FONTS:
-        reader = PdfReader(tmp1.name)
-        writer = PdfWriter()
-        writer.append(reader)
-
-        for annot_ref in writer.pages[0].get("/Annots", []):
-            annot = annot_ref.get_object()
-            field_name = str(annot.get("/T", ""))
-            if field_name not in widget_fonts:
-                continue
-            intended_font, font_size = widget_fonts[field_name]
-            if intended_font not in FONTS:
-                continue
-            ap = annot.get("/AP")
-            if not ap:
-                continue
-            n = ap.get_object().get("/N")
-            if not n:
-                continue
-            n_obj = n.get_object()
-            try:
-                stream = n_obj.get_data()
-                fixed = re.sub(
-                    rb"/[A-Za-z0-9_-]+\s+[\d.]+\s+Tf",
-                    f"/{intended_font} {font_size} Tf".encode(),
-                    stream, count=1,
-                )
-                if fixed != stream:
-                    n_obj.set_data(fixed)   # correct pypdf API
-            except Exception:
-                pass
-
-        tmp2 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        tmp2.close()
-        with open(tmp2.name, "wb") as f:
+    if filled_via_fitz:
+        # Write the unfilled pypdf copy then re-open with fitz to fill widgets
+        with open(tmp1.name, "wb") as f:
             writer.write(f)
+        doc_fitz = fitz.open(tmp1.name)
+        page_fitz = doc_fitz[0]
+        for w in page_fitz.widgets():
+            if w.field_name in field_values:
+                w.field_value = field_values[w.field_name]
+                w.text_font = "Helv"
+                w.update()
+        tmp1b = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        tmp1b.close()
+        doc_fitz.save(tmp1b.name)
+        doc_fitz.close()
         os.unlink(tmp1.name)
-        bake_src = tmp2.name
+        tmp1.name = tmp1b.name
     else:
-        bake_src = tmp1.name
+        with open(tmp1.name, "wb") as f:
+            writer.write(f)
 
-    doc3 = fitz.open(bake_src)
-    doc3.bake()
-    doc3.save(output_path, garbage=4, deflate=True)
-    doc3.close()
-    os.unlink(bake_src)
+    # ── Step 2: copy AcroForm DR fonts into page resources ────────────────────
+    # The AP streams reference fonts by name (e.g. /MuseoSlab-700). Those names
+    # must exist in the page /Resources /Font dict after we remove AcroForm,
+    # otherwise PDF viewers (especially Preview) can't resolve them and show blank.
+    reader2   = PdfReader(tmp1.name)
+    writer2   = PdfWriter()
+    writer2.append(reader2)
+    page      = writer2.pages[0]
+
+    orig_reader = PdfReader(template_path)
+    orig_root   = orig_reader.trailer["/Root"]
+    if "/AcroForm" in orig_root:
+        acroform  = orig_root["/AcroForm"].get_object()
+        dr        = acroform.get("/DR", {})
+        if hasattr(dr, "get_object"):
+            dr = dr.get_object()
+        dr_fonts  = dr.get("/Font", {})
+        if hasattr(dr_fonts, "get_object"):
+            dr_fonts = dr_fonts.get_object()
+
+        page_res  = page.get("/Resources", DictionaryObject())
+        if hasattr(page_res, "get_object"):
+            page_res = page_res.get_object()
+        page_fonts = page_res.get("/Font", DictionaryObject())
+        if hasattr(page_fonts, "get_object"):
+            page_fonts = page_fonts.get_object()
+
+        for fname, fref in (dr_fonts.items() if hasattr(dr_fonts, "items") else []):
+            if fname not in page_fonts:
+                page_fonts[NameObject(fname)] = fref
+
+        page_res[NameObject("/Font")]   = page_fonts
+        page[NameObject("/Resources")] = page_res
+
+    # ── Step 3: stamp AP streams into page content ────────────────────────────
+    ap_parts   = []
+    annots_raw = page.get("/Annots")
+    annots     = annots_raw.get_object() if hasattr(annots_raw, "get_object") else (annots_raw or [])
+    for ref in annots:
+        annot = ref.get_object() if hasattr(ref, "get_object") else ref
+        ap    = annot.get("/AP")
+        if not ap:
+            continue
+        n = (ap.get_object() if hasattr(ap, "get_object") else ap).get("/N")
+        if not n:
+            continue
+        n_obj = n.get_object() if hasattr(n, "get_object") else n
+        try:
+            rect  = annot.get("/Rect")
+            r     = [float(x) for x in rect]
+            # Translate AP coordinate system (origin = annotation lower-left)
+            # to page coordinate system
+            ap_parts.append(
+                f"q 1 0 0 1 {r[0]} {r[1]} cm\n".encode() +
+                n_obj.get_data() + b"\nQ\n"
+            )
+        except Exception:
+            pass
+
+    if ap_parts:
+        contents = page.get("/Contents")
+        existing = []
+        if contents is not None:
+            co = contents.get_object() if hasattr(contents, "get_object") else contents
+            if isinstance(co, ArrayObject):
+                for s in co:
+                    so = s.get_object() if hasattr(s, "get_object") else s
+                    existing.append(so.get_data())
+            elif hasattr(co, "get_data"):
+                existing.append(co.get_data())
+
+        merged = b"\n".join(existing + ap_parts)
+        ns     = DecodedStreamObject()
+        ns.set_data(merged)
+        page[NameObject("/Contents")] = writer2._add_object(ns)
+
+    # Remove annotations (now stamped into content) and AcroForm
+    page[NameObject("/Annots")] = ArrayObject()
+    if "/AcroForm" in writer2._root_object:
+        del writer2._root_object["/AcroForm"]
+
+    with open(output_path, "wb") as f:
+        writer2.write(f)
+    os.unlink(tmp1.name)
 
 
 def build_merged_pdf(page_paths, output_path):
-    merged = fitz.open()
+    merged = PdfWriter()
     for path in page_paths:
-        src = fitz.open(path)
-        merged.insert_pdf(src)
-        src.close()
-    merged.save(output_path, garbage=4, deflate=True)
-    merged.close()
+        merged.append(PdfReader(path))
+    with open(output_path, "wb") as f:
+        merged.write(f)
 
 
 def generate_certificates(entries, section, output_path):
