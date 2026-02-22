@@ -1,39 +1,92 @@
 """
 SLS Certificate & Name Tent Generator — Flask Web App
-PDF generation uses PyMuPDF (fitz) to fill fields, render Museo fonts correctly,
-and fully flatten the output so text cannot be edited afterwards.
+
+Font rendering
+--------------
+The PDF templates reference MuseoSlab-700, MuseoSlab-500Italic,
+MuseoSans-700, and MuseoSans-500Italic in their form fields. PyMuPDF
+can only use these on systems that have them installed. Render's Linux
+servers have no system fonts, so without the files present the output
+falls back to Helvetica.
+
+To get correct Museo rendering, add the font files to a fonts/ subfolder
+in this project and commit them to your repository:
+
+    fonts/MuseoSlab-700.otf        (or .ttf)
+    fonts/MuseoSlab-500Italic.otf
+    fonts/MuseoSans-700.otf
+    fonts/MuseoSans-500Italic.otf
+
+Find the files on your Mac with:  fc-list | grep -i museo
 """
 
 import csv
 import io
 import os
+import re
 import tempfile
 import zipfile
 
-import fitz  # PyMuPDF
+import fitz
 from flask import Flask, request, send_file, jsonify, Response
+from pypdf import PdfReader, PdfWriter
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB upload limit
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
 
 TEMPLATES_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def _find_template(filename):
-    """Search common locations for a template PDF relative to app.py."""
-    candidates = [
+    for candidate in [
         os.path.join(TEMPLATES_DIR, filename),
         os.path.join(TEMPLATES_DIR, "resources", filename),
-        os.path.join(TEMPLATES_DIR, "templates", filename),
-        os.path.join(TEMPLATES_DIR, "static", filename),
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            return path
-    return candidates[0]
+    ]:
+        if os.path.exists(candidate):
+            return candidate
+    return os.path.join(TEMPLATES_DIR, filename)
 
 STAFF_PDF       = _find_template("Staff.pdf")
 PARTICIPANT_PDF = _find_template("Participant.pdf")
 TENT_PDF        = _find_template("SLS_Name_Tent.pdf")
+
+
+# ── Font loading ──────────────────────────────────────────────────────────────
+
+def _load_fonts():
+    fonts_dir = os.path.join(TEMPLATES_DIR, "fonts")
+    # Each PDF font name maps to a list of candidate filenames to try
+    mapping = {
+        "MuseoSlab-700":       ["MuseoSlab-700.otf",       "MuseoSlab-700.ttf",
+                                 "Museo_Slab_700.otf",      "Museo_Slab_700.ttf",
+                                 "MuseoSlab700.otf",        "MuseoSlab700.ttf"],
+        "MuseoSlab-500Italic": ["MuseoSlab-500Italic.otf", "MuseoSlab-500Italic.ttf",
+                                 "Museo_Slab_500Italic.otf","Museo_Slab_500Italic.ttf"],
+        "MuseoSans-700":       ["MuseoSans-700.otf",       "MuseoSans-700.ttf",
+                                 "Museo_Sans_700.otf",      "Museo_Sans_700.ttf",
+                                 "MuseoSans700.otf",        "MuseoSans700.ttf"],
+        "MuseoSans-500Italic": ["MuseoSans-500Italic.otf", "MuseoSans-500Italic.ttf",
+                                 "Museo_Sans_500Italic.otf","Museo_Sans_500Italic.ttf"],
+    }
+    loaded = {}
+    for font_name, candidates in mapping.items():
+        for filename in candidates:
+            path = os.path.join(fonts_dir, filename)
+            if os.path.exists(path):
+                loaded[font_name] = open(path, "rb").read()
+                print(f"[SLS] Font loaded:   {font_name}  ({path})", flush=True)
+                break
+        else:
+            print(f"[SLS] Font MISSING:  {font_name} — add to fonts/ folder", flush=True)
+    return loaded
+
+FONTS = _load_fonts()
+
+if len(FONTS) == 4:
+    print("[SLS] All Museo fonts loaded. Rendering will be correct.", flush=True)
+else:
+    missing = 4 - len(FONTS)
+    print(f"[SLS] WARNING: {missing} Museo font(s) missing. "
+          "Output will use Helvetica. See module docstring.", flush=True)
 
 
 # ── Startup check ─────────────────────────────────────────────────────────────
@@ -44,47 +97,116 @@ def _check_templates():
                         ("Participant.pdf", PARTICIPANT_PDF),
                         ("SLS_Name_Tent.pdf", TENT_PDF)]:
         if os.path.exists(path):
-            print(f"[SLS] Template OK:      {label}  ({path})", flush=True)
+            print(f"[SLS] Template OK:   {label}", flush=True)
         else:
-            print(f"[SLS] Template MISSING: {label}  ({path})", flush=True)
+            print(f"[SLS] Template MISS: {label}  ({path})", flush=True)
             all_ok = False
-    if all_ok:
-        print("[SLS] All templates found. Ready.", flush=True)
-    else:
-        print("[SLS] WARNING: one or more templates are missing.", flush=True)
     return all_ok
 
 try:
     _templates_ok = _check_templates()
 except Exception as _e:
     import traceback
-    print(f"[SLS] Startup check failed: {_e}", flush=True)
-    print(traceback.format_exc(), flush=True)
+    print(f"[SLS] Startup error: {_e}\n{traceback.format_exc()}", flush=True)
     _templates_ok = False
 
 
 # ── PDF helpers ───────────────────────────────────────────────────────────────
 
 def fill_and_flatten(template_path, field_values, output_path):
-    """Fill form fields using PyMuPDF, then call bake() to:
-      - Render text using the fonts defined in each field's /DA string
-        (MuseoSlab-700 for certs, MuseoSans-700/500Italic for tents)
-      - Remove all interactive form annotations
-      - Produce a static, uneditable PDF
+    """Fill PDF form fields with correct Museo font rendering and flatten.
+
+    Flow:
+    1. Open template with fitz; register Museo fonts into page resources
+       (only if font files are present in FONTS)
+    2. Set widget values; fitz writes /Helv fallback into AP streams
+    3. Save to temp file; reopen with pypdf and patch AP streams to
+       replace /Helv with the correct Museo font name — fitz now has
+       that font registered in page resources so it resolves correctly
+    4. Reopen patched file with fitz and call bake() to stamp AP content
+       into the page as static, uneditable graphics
     """
+    # ── Step 1 & 2: fill widgets ──────────────────────────────────────────
     doc = fitz.open(template_path)
     page = doc[0]
-    for widget in page.widgets():
-        if widget.field_name in field_values:
-            widget.field_value = field_values[widget.field_name]
-            widget.update()
-    doc.bake()
-    doc.save(output_path, garbage=4, deflate=True)
+
+    # Map each widget to its intended font (from the /DA string)
+    widget_fonts = {}
+    for w in page.widgets():
+        widget_fonts[w.field_name] = (w.text_font, w.text_fontsize)
+
+    # Register Museo fonts into page resources so bake() can find them
+    for font_name, font_bytes in FONTS.items():
+        page.insert_font(fontname=font_name, fontbuffer=font_bytes)
+
+    # Fill values (fitz will write /Helv into AP streams — we patch below)
+    for w in page.widgets():
+        if w.field_name in field_values:
+            w.field_value = field_values[w.field_name]
+            w.update()
+
+    tmp1 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    tmp1.close()
+    doc.save(tmp1.name)
     doc.close()
+
+    # ── Step 3: patch AP streams if we have the fonts ─────────────────────
+    if FONTS:
+        reader = PdfReader(tmp1.name)
+        writer = PdfWriter()
+        writer.append(reader)
+        page_w = writer.pages[0]
+
+        for annot_ref in page_w.get("/Annots", []):
+            annot = annot_ref.get_object()
+            field_name = str(annot.get("/T", ""))
+            if field_name not in widget_fonts:
+                continue
+            intended_font, font_size = widget_fonts[field_name]
+            if intended_font not in FONTS:
+                continue  # font not available, leave Helv
+
+            ap = annot.get("/AP")
+            if not ap:
+                continue
+            ap_obj = ap.get_object()
+            n = ap_obj.get("/N")
+            if not n:
+                continue
+            n_obj = n.get_object()
+            try:
+                stream = n_obj.get_data()
+                # Replace whatever fallback font fitz used with the correct one
+                fixed = re.sub(
+                    rb"/[A-Za-z0-9_-]+\s+[\d.]+\s+Tf",
+                    f"/{intended_font} {font_size} Tf".encode(),
+                    stream,
+                    count=1,
+                )
+                if fixed != stream:
+                    n_obj._data   = fixed
+                    n_obj._stream = fixed
+            except Exception:
+                pass  # leave stream unpatched on error
+
+        tmp2 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        tmp2.close()
+        with open(tmp2.name, "wb") as f:
+            writer.write(f)
+        os.unlink(tmp1.name)
+        bake_src = tmp2.name
+    else:
+        bake_src = tmp1.name
+
+    # ── Step 4: bake to static content ───────────────────────────────────
+    doc3 = fitz.open(bake_src)
+    doc3.bake()
+    doc3.save(output_path, garbage=4, deflate=True)
+    doc3.close()
+    os.unlink(bake_src)
 
 
 def build_merged_pdf(page_paths, output_path):
-    """Merge a list of single-page PDFs into one document using PyMuPDF."""
     merged = fitz.open()
     for path in page_paths:
         src = fitz.open(path)
@@ -743,10 +865,14 @@ def healthcheck():
                         ("Participant.pdf", PARTICIPANT_PDF),
                         ("SLS_Name_Tent.pdf", TENT_PDF)]:
         found = os.path.exists(path)
-        status[label] = f"OK — {path}" if found else f"MISSING — looked at {path}"
+        status[label] = "OK" if found else f"MISSING — {path}"
         if not found:
             all_ok = False
-    status["templates_dir"] = TEMPLATES_DIR
+    status["fonts"] = {
+        name: "loaded" if name in FONTS else "MISSING — add to fonts/ folder"
+        for name in ["MuseoSlab-700", "MuseoSlab-500Italic",
+                     "MuseoSans-700", "MuseoSans-500Italic"]
+    }
     status["ready"] = all_ok
     return jsonify(status), 200 if all_ok else 500
 
@@ -758,15 +884,14 @@ def index():
 
 @app.route("/generate", methods=["POST"])
 def generate():
-    missing = [name for name, path in [("Staff.pdf", STAFF_PDF),
-                                        ("Participant.pdf", PARTICIPANT_PDF),
-                                        ("SLS_Name_Tent.pdf", TENT_PDF)]
-               if not os.path.exists(path)]
-    if missing:
-        return jsonify(error=(
-            f"Server configuration error: template files missing: "
-            f"{', '.join(missing)}. Ensure they are committed to the repository."
-        )), 500
+    missing_templates = [
+        name for name, path in [("Staff.pdf", STAFF_PDF),
+                                  ("Participant.pdf", PARTICIPANT_PDF),
+                                  ("SLS_Name_Tent.pdf", TENT_PDF)]
+        if not os.path.exists(path)
+    ]
+    if missing_templates:
+        return jsonify(error=f"Template files missing: {', '.join(missing_templates)}"), 500
 
     section     = request.form.get("section", "").strip()
     output_type = request.form.get("output_type", "both")
@@ -821,7 +946,7 @@ def generate():
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        print(f"[SLS] PDF generation error:\n{tb}", flush=True)
+        print(f"[SLS] Generation error:\n{tb}", flush=True)
         return jsonify(error=f"PDF generation failed: {e}", traceback=tb), 500
 
 
