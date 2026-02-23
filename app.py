@@ -115,24 +115,117 @@ except Exception as _e:
 
 # ── PDF helpers ───────────────────────────────────────────────────────────────
 
-def _patch_ap_stream(stream: bytes, new_text: str, rect_width: float,
-                     font_size: float) -> bytes:
-    """Replace text in an AP stream, recalculating a centred x-offset.
+def _get_font_widths(template_path: str, font_name: str):
+    """Return (first_char, widths_list) from AcroForm /DR, or (None, None)."""
+    try:
+        reader = PdfReader(template_path)
+        root   = reader.trailer["/Root"]
+        acro   = root["/AcroForm"].get_object()
+        dr     = acro.get("/DR", {})
+        if hasattr(dr, "get_object"):    dr    = dr.get_object()
+        fonts  = dr.get("/Font", {})
+        if hasattr(fonts, "get_object"): fonts = fonts.get_object()
+        fobj   = fonts.get(f"/{font_name}")
+        if not fobj: return None, None
+        fobj   = fobj.get_object() if hasattr(fobj, "get_object") else fobj
+        fc     = int(fobj.get("/FirstChar", 0))
+        wlist  = fobj.get("/Widths")
+        if not wlist: return None, None
+        return fc, [int(x) for x in wlist]
+    except Exception:
+        return None, None
 
-    Preserves the original stream structure (clipping rect, font name, y-offset)
-    so the original /Q=1 (centred) layout intent is honoured even though pypdf
-    can't regenerate centred AP streams itself.
+
+def _fit_text(text: str, nominal_size: float,
+              fc, widths, rect_width: float,
+              min_size: float = 14.0):
+    """Return (font_size, x_offset) that centres text inside rect_width.
+
+    Reduces font size in 1-pt steps until text fits, down to min_size.
+    Uses actual character-width tables when available for accuracy.
+    """
+    available = rect_width - 4.0
+
+    def tw(s, sz):
+        if widths is not None and fc is not None:
+            return sum(widths[ord(c) - fc] for c in s
+                       if 0 <= ord(c) - fc < len(widths)) * sz / 1000.0
+        return len(s) * sz * 0.55
+
+    size = nominal_size
+    while size >= min_size:
+        w = tw(text, size)
+        if w <= available:
+            x = max(2.0, (available - w) / 2.0 + 2.0)
+            return size, x
+        size -= 1.0
+    return min_size, 2.0
+
+
+def _patch_ap_stream(stream: bytes, new_text: str, rect_width: float,
+                     font_size: float, fc=None, widths=None) -> bytes:
+    """Replace text in an AP stream, scaling font to fit and re-centering.
+
+    Preserves the original stream structure (clipping rect, y-offset) so
+    the original /Q=1 (centred) layout is honoured.  Uses the actual
+    MuseoSlab-700 width table when available for accurate measurement.
     """
     m = re.search(rb"([\d.]+) ([\d.]+) Td\n\(([^)]*)\) Tj", stream)
     if not m:
         return stream
     orig_y = m.group(2).decode()
-    # Approximate text width; Museo Slab 700 is roughly 0.48 em per character.
-    text_width = len(new_text) * font_size * 0.48
-    available  = rect_width - 4          # 2 pt margin each side
-    x_offset   = max(2.0, (available - text_width) / 2 + 2) if text_width < available else 2.0
-    replacement = f"{x_offset:.3f} {orig_y} Td\n({new_text}) Tj".encode()
-    return stream[: m.start()] + replacement + stream[m.end() :]
+
+    new_size, x_offset = _fit_text(new_text, font_size, fc, widths, rect_width)
+
+    # Update Tf font size
+    stream = re.sub(
+        rb"(/[A-Za-z0-9_-]+) [\d.]+ Tf",
+        lambda mo: mo.group(1) + f" {new_size:.1f} Tf".encode(),
+        stream, count=1,
+    )
+    # Re-find Td after substitution (byte offsets shifted)
+    m2 = re.search(rb"([\d.]+) ([\d.]+) Td\n\(([^)]*)\) Tj", stream)
+    if not m2:
+        return stream
+    replacement = f"{x_offset:.3f} {m2.group(2).decode()} Td\n({new_text}) Tj".encode()
+    return stream[: m2.start()] + replacement + stream[m2.end() :]
+
+
+
+def _inject_helv_resource(pdf_path: str) -> None:
+    """Add /Helv (Helvetica) to page /Resources /Font so strict viewers render it.
+
+    fitz generates AP streams that reference /Helv but never registers the font
+    in page resources.  PDF/A-compliant viewers (including macOS Preview) refuse
+    to render text whose font isn't declared in page resources.
+    """
+    from pypdf.generic import NameObject, DictionaryObject
+
+    reader = PdfReader(pdf_path)
+    writer = PdfWriter()
+    writer.append(reader)
+    page = writer.pages[0]
+
+    page_res = page.get("/Resources", DictionaryObject())
+    if hasattr(page_res, "get_object"): page_res = page_res.get_object()
+    page_fonts = page_res.get("/Font", DictionaryObject())
+    if hasattr(page_fonts, "get_object"): page_fonts = page_fonts.get_object()
+
+    if "/Helv" not in page_fonts:
+        helv = DictionaryObject()
+        helv[NameObject("/Type")]     = NameObject("/Font")
+        helv[NameObject("/Subtype")]  = NameObject("/Type1")
+        helv[NameObject("/BaseFont")] = NameObject("/Helvetica")
+        page_fonts[NameObject("/Helv")] = writer._add_object(helv)
+        page_res[NameObject("/Font")]   = page_fonts
+        page[NameObject("/Resources")]  = page_res
+
+    import tempfile, os
+    tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    tmp.close()
+    with open(tmp.name, "wb") as f:
+        writer.write(f)
+    os.replace(tmp.name, pdf_path)
 
 
 def _merge_ap_into_page(filled_path: str, output_path: str, *,
@@ -289,6 +382,9 @@ def fill_and_flatten(template_path, field_values, output_path):
         doc_fitz.save(tmp2.name)
         doc_fitz.close()
         os.unlink(tmp1.name)
+        # Inject /Helv into page resources so strict viewers (Preview) can render it.
+        # fitz writes /Helv in AP streams but doesn't add it to page /Resources.
+        _inject_helv_resource(tmp2.name)
         _merge_ap_into_page(tmp2.name, output_path, fonts={}, template_path=None)
         return
 
@@ -314,10 +410,13 @@ def fill_and_flatten(template_path, field_values, output_path):
         rect_width = rect[2] - rect[0]
         da         = str(annot.get("/DA", ""))
         fm         = re.search(r"/([A-Za-z0-9_-]+)\s+([\d.]+)\s+Tf", da)
+        font_name  = fm.group(1) if fm else "Helv"
         font_size  = float(fm.group(2)) if fm else 12.0
+        fc, widths = _get_font_widths(template_path, font_name)
         try:
             new_stream = _patch_ap_stream(
-                n_obj.get_data(), field_values[field_name], rect_width, font_size
+                n_obj.get_data(), field_values[field_name], rect_width, font_size,
+                fc=fc, widths=widths,
             )
             n_obj.set_data(new_stream)
         except Exception as exc:
