@@ -497,7 +497,7 @@ def generate_name_tents(entries, output_path):
     with tempfile.TemporaryDirectory() as tmpdir:
         pages = []
         for i, entry in enumerate(entries):
-            name_value  = "\n" + entry["name"]
+            name_value  = entry["name"]
             lodge_value = entry["lodge"]
             if entry["role"].lower() == "staff":
                 lodge_value = "STAFF - " + lodge_value
