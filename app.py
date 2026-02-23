@@ -418,7 +418,7 @@ def fill_and_flatten(template_path, field_values, output_path):
             em        = 0.52 if "Museo" in font_name else 0.55
             text_w    = len(text) * font_size * em
             avail     = rect_w - 4.0
-            x         = max(2.0, (avail - text_w) / 2.0 + 2.0) if text_w < avail else 2.0
+            x         = 2.0
             y         = max(2.0, (rect_h - font_size) / 2.0)
 
             ap_stream = (
