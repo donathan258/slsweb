@@ -367,25 +367,66 @@ def fill_and_flatten(template_path, field_values, output_path):
 
     if not has_dr:
         # ── Tent path: fitz fills with Helv (tolerates missing /DR) ──────────
+        # Build AP streams directly with pypdf — no fitz involvement.
+        # fitz generates AP with font declared AFTER Td moves, which confuses
+        # strict viewers (macOS Preview).  We write a clean stream with the font
+        # declared first, text properly centred, and /Helv registered in page
+        # resources so the font reference resolves without system font lookup.
+        annots_raw = page.get("/Annots")
+        for ref in annots_raw.get_object() if hasattr(annots_raw, "get_object") else (annots_raw or []):
+            annot      = ref.get_object() if hasattr(ref, "get_object") else ref
+            field_name = str(annot.get("/T", ""))
+            if field_name not in field_values:
+                continue
+            rect      = [float(x) for x in annot.get("/Rect")]
+            rect_w    = rect[2] - rect[0]
+            rect_h    = rect[3] - rect[1]
+            da        = str(annot.get("/DA", ""))
+            fm        = re.search(r"/([A-Za-z0-9_-]+)\s+([\d.]+)\s+Tf", da)
+            i_font    = fm.group(1) if fm else "Helv"
+            font_size = float(fm.group(2)) if fm else 12.0
+            # Use Museo font if available (loaded on Render), else Helv
+            font_name = i_font if i_font in FONTS else "Helv"
+
+            text      = field_values[field_name]
+            em        = 0.52 if "Museo" in font_name else 0.55
+            text_w    = len(text) * font_size * em
+            avail     = rect_w - 4.0
+            x         = max(2.0, (avail - text_w) / 2.0 + 2.0) if text_w < avail else 2.0
+            y         = max(2.0, (rect_h - font_size) / 2.0)
+
+            ap_stream = (
+                f"q\n1 1 {rect_w-2:.3f} {rect_h-2:.3f} re W n\n"
+                f"BT\n/{font_name} {font_size:.1f} Tf\n0 g\n"
+                f"{x:.3f} {y:.3f} Td\n({text}) Tj\nET\nQ\n"
+            ).encode()
+
+            n_obj = DecodedStreamObject()
+            n_obj.set_data(ap_stream)
+            ap_d = DictionaryObject()
+            ap_d[NameObject("/N")] = writer._add_object(n_obj)
+            annot[NameObject("/AP")] = writer._add_object(ap_d)
+            annot[NameObject("/V")] = create_string_object(text)
+
+        # Register /Helv (or the Museo font) in page resources so it resolves
+        page_res   = page.get("/Resources", DictionaryObject())
+        if hasattr(page_res, "get_object"): page_res = page_res.get_object()
+        page_fonts = page_res.get("/Font", DictionaryObject())
+        if hasattr(page_fonts, "get_object"): page_fonts = page_fonts.get_object()
+        if "/Helv" not in page_fonts:
+            helv = DictionaryObject()
+            helv[NameObject("/Type")]     = NameObject("/Font")
+            helv[NameObject("/Subtype")]  = NameObject("/Type1")
+            helv[NameObject("/BaseFont")] = NameObject("/Helvetica")
+            page_fonts[NameObject("/Helv")] = writer._add_object(helv)
+            page_res[NameObject("/Font")]   = page_fonts
+            page[NameObject("/Resources")]  = page_res
+
         tmp1 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
         tmp1.close()
         with open(tmp1.name, "wb") as f:
             writer.write(f)
-        doc_fitz = fitz.open(tmp1.name)
-        for w in doc_fitz[0].widgets():
-            if w.field_name in field_values:
-                w.field_value = field_values[w.field_name]
-                w.text_font   = "Helv"
-                w.update()
-        tmp2 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        tmp2.close()
-        doc_fitz.save(tmp2.name)
-        doc_fitz.close()
-        os.unlink(tmp1.name)
-        # Inject /Helv into page resources so strict viewers (Preview) can render it.
-        # fitz writes /Helv in AP streams but doesn't add it to page /Resources.
-        _inject_helv_resource(tmp2.name)
-        _merge_ap_into_page(tmp2.name, output_path, fonts={}, template_path=None)
+        _merge_ap_into_page(tmp1.name, output_path, fonts={}, template_path=None)
         return
 
     # ── Cert path: patch existing AP streams directly ─────────────────────────
