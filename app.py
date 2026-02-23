@@ -1,23 +1,6 @@
 """
 SLS Certificate & Name Tent Generator — Flask Web App
 
-Font rendering
---------------
-The PDF templates reference MuseoSlab-700, MuseoSlab-500Italic,
-MuseoSans-700, and MuseoSans-500Italic in their form fields. PyMuPDF
-can only use these on systems that have them installed. Render's Linux
-servers have no system fonts, so without the files present the output
-falls back to Helvetica.
-
-To get correct Museo rendering, add the font files to a fonts/ subfolder
-in this project and commit them to your repository:
-
-    fonts/MuseoSlab-700.otf        (or .ttf)
-    fonts/MuseoSlab-500Italic.otf
-    fonts/MuseoSans-700.otf
-    fonts/MuseoSans-500Italic.otf
-
-Find the files on your Mac with:  fc-list | grep -i museo
 """
 
 import csv
@@ -561,8 +544,6 @@ def parse_plain(text):
 
 # ── Embedded HTML ─────────────────────────────────────────────────────────────
 
-# Load the HTML page from index.html at startup.
-# Edit index.html directly — no need to touch app.py for UI changes.
 _html_path = os.path.join(TEMPLATES_DIR, "index.html")
 INDEX_HTML  = open(_html_path, encoding="utf-8").read()
 
