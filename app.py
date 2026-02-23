@@ -232,7 +232,7 @@ def _merge_ap_into_page(filled_path: str, output_path: str, *,
                         fonts: dict, template_path: str | None) -> None:
     """Merge annotation AP streams into page content, embed font data, flatten."""
     from pypdf.generic import (
-        ArrayObject, NameObject, DecodedStreamObject, DictionaryObject
+        ArrayObject, NameObject, DecodedStreamObject, DictionaryObject, NumberObject
     )
 
     reader2 = PdfReader(filled_path)
@@ -285,6 +285,26 @@ def _merge_ap_into_page(filled_path: str, output_path: str, *,
 
             page_res[NameObject("/Font")]    = page_fonts
             page[NameObject("/Resources")] = page_res
+
+    # Also register any fonts present in FONTS but missing from DR
+    # (e.g. MuseoSans-700 is used in DA but absent from the template's /DR)
+    for font_key, font_bytes in fonts.items():
+        slash_key = f"/{font_key}"
+        if slash_key not in page_fonts:
+            ff = DecodedStreamObject()
+            ff.set_data(font_bytes)
+            ff[NameObject("/Subtype")] = NameObject("/OpenType")
+            ff_ref = writer2._add_object(ff)
+            fd = DictionaryObject()
+            fd[NameObject("/FontName")] = NameObject(f"/{font_key}")
+            fd[NameObject("/Flags")] = NumberObject(32)
+            fd[NameObject("/FontFile3")] = ff_ref
+            new_font = DictionaryObject()
+            new_font[NameObject("/Type")] = NameObject("/Font")
+            new_font[NameObject("/Subtype")] = NameObject("/Type1")
+            new_font[NameObject("/BaseFont")] = NameObject(f"/{font_key}")
+            new_font[NameObject("/FontDescriptor")] = writer2._add_object(fd)
+            page_fonts[NameObject(slash_key)] = writer2._add_object(new_font)
 
     # Stamp each annotation's /AP /N stream into the page content stream.
     ap_parts   = []
@@ -361,6 +381,7 @@ def fill_and_flatten(template_path, field_values, output_path):
     # Detect whether this template has a proper AcroForm /DR (cert) or not (tent).
     root = reader.trailer["/Root"]
     has_dr = False
+    print(f"[SLS] fill_and_flatten: template={template_path}, has_dr={has_dr}", flush=True)
     if "/AcroForm" in root and "/DR" in root["/AcroForm"].get_object():
         annots_raw = page.get("/Annots")
         annots = annots_raw.get_object() if hasattr(annots_raw, "get_object") else (annots_raw or [])
@@ -391,6 +412,7 @@ def fill_and_flatten(template_path, field_values, output_path):
             font_size = float(fm.group(2)) if fm else 12.0
             # Use Museo font if available (loaded on Render), else Helv
             font_name = i_font if i_font in FONTS else "Helv"
+            print(f"[SLS] tent field '{field_name}': i_font={i_font}, in FONTS={i_font in FONTS}, font_name={font_name}, FONTS keys={list(FONTS.keys())}", flush=True)
 
             text      = field_values[field_name]
             em        = 0.52 if "Museo" in font_name else 0.55
@@ -430,7 +452,7 @@ def fill_and_flatten(template_path, field_values, output_path):
         tmp1.close()
         with open(tmp1.name, "wb") as f:
             writer.write(f)
-        _merge_ap_into_page(tmp1.name, output_path, fonts={}, template_path=None)
+        _merge_ap_into_page(tmp1.name, output_path, fonts=FONTS, template_path=TENT_PDF)
         return
 
     # ── Cert path: patch existing AP streams directly ─────────────────────────
@@ -546,6 +568,16 @@ INDEX_HTML  = open(_html_path, encoding="utf-8").read()
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+@app.route("/sample.csv")
+def sample_csv():
+    csv_content = "Name,Lodge,Role\nCortland Bolles,Wewikit Lodge,Staff\nChristopher Groves,Tipisa Lodge,Participant\nBrea Baygents,Wewikit Lodge,Participant\nDonathan Linebrink,Shenandoah Lodge,Staff\n"
+    return Response(
+        csv_content,
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=SLS_Sample.csv"}
+    )
+
 
 @app.route("/healthcheck")
 def healthcheck():

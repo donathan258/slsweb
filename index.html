@@ -70,12 +70,12 @@
     }
 
     .header-title {
-	font-family: 'museo-slab', serif;
-	font-size: clamp(1.4rem, 3.5vw, 2.2rem);
-	font-weight: 700;
-	color: var(--cream);
-	line-height: 1.2;
-	letter-spacing: 0.04em;
+      font-family: 'museo-slab', serif;
+      font-size: clamp(1.4rem, 3.5vw, 2.2rem);
+      font-weight: 700;
+      color: var(--cream);
+      line-height: 1.2;
+      letter-spacing: 0.04em;
     }
 
     .header-title span {
@@ -83,11 +83,11 @@
     }
 
     .header-sub {
-	font-family: 'museo-slab', serif;
-	font-style: normal;
-	font-size: 1.05rem;
-	color: #D9365A;
-	margin-top: 0.35rem;
+      font-family: 'museo-slab', serif;
+      font-style: normal;
+      font-size: 1.05rem;
+      color: #D9365A;
+      margin-top: 0.35rem;
     }
 
     /* ── Main layout ── */
@@ -153,11 +153,11 @@
     }
 
     label .hint {
-	font-family: 'museo-sans', sans-serif;
-	font-weight: 300;
-	font-style: italic;
-	color: #8A7355;
-	font-size: 0.82rem;
+      font-family: 'museo-sans', sans-serif;
+      font-weight: 300;
+      font-style: italic;
+      color: #8A7355;
+      font-size: 0.82rem;
     }
 
     input[type="text"],
@@ -222,6 +222,44 @@
       font-weight: 600;
     }
 
+    /* ── Section row (region + number side by side) ── */
+    .section-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 1rem;
+    }
+
+    .section-row .region-group {
+      flex: 0 0 auto;
+    }
+
+    .section-row .number-group {
+      flex: 0 0 auto;
+    }
+
+    .section-row .preview-group {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+    }
+
+    .section-preview {
+      font-family: 'museo-slab', serif;
+      font-size: 0.88rem;
+      color: #5A4020;
+      background: var(--parchment);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 0.55rem 0.75rem;
+      letter-spacing: 0.03em;
+    }
+
+    .section-preview span {
+      font-weight: 700;
+      color: var(--bark);
+    }
+
     /* ── File drop zone ── */
     .drop-zone {
       border: 2px dashed var(--border);
@@ -256,26 +294,6 @@
       font-size: 0.82rem;
       color: var(--moss);
       font-style: italic;
-    }
-
-    /* ── Divider ── */
-    .or-divider {
-      display: flex;
-      align-items: center;
-      gap: 0.8rem;
-      margin: 1.2rem 0;
-      color: #A89070;
-      font-style: italic;
-      font-size: 0.9rem;
-    }
-
-    .or-divider::before,
-    .or-divider::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: var(--border);
-      opacity: 0.6;
     }
 
     /* ── Submit button ── */
@@ -383,15 +401,15 @@
     @media (max-width: 520px) {
       .card { padding: 1.4rem 1.2rem; }
       .toggle-group label { font-size: 0.78rem; padding: 0.5rem 0.3rem; }
+      .section-row { flex-direction: column; align-items: stretch; }
     }
   </style>
 </head>
 <body>
 
 <header>
-  <img src="header2.png" alt="" width="720" height="118" />
-  
-<p class="header-sub">SLS Certificate &amp; Name Tent Generator</p>
+  <img src="/static/header2.png" alt="" width="720" height="118" />
+  <p class="header-sub">SLS Certificate &amp; Name Tent Generator</p>
 </header>
 
 <main>
@@ -402,8 +420,29 @@
       <p class="section-label">Settings</p>
 
       <div class="field">
-        <label for="section">Section <span class="hint">- applied to all certificates</span></label>
-        <input type="text" id="section" name="section" placeholder="e.g. Section E5" autocomplete="off">
+        <label>Section <span class="hint">- applied to all certificates</span></label>
+        <div class="section-row">
+          <div class="region-group">
+            <label style="font-size:0.78rem; margin-bottom:0.3rem;">Region</label>
+            <div class="toggle-group">
+              <input type="radio" name="region" id="region-e" value="E" checked>
+              <label for="region-e">Eastern</label>
+              <input type="radio" name="region" id="region-g" value="G">
+              <label for="region-g">Gateway</label>
+            </div>
+          </div>
+          <div class="number-group">
+            <label for="section-number" style="font-size:0.78rem; margin-bottom:0.3rem;">Number</label>
+            <input type="text" id="section-number" name="section_number"
+              placeholder="e.g. 9" maxlength="3" autocomplete="off"
+              style="width:90px; text-transform:uppercase;">
+          </div>
+          <div class="preview-group">
+            <div class="section-preview">Will appear as: <span id="sectionPreview">Section E…</span></div>
+          </div>
+        </div>
+        <!-- Hidden field carries the assembled value to the server -->
+        <input type="hidden" id="section" name="section" value="">
       </div>
 
       <div class="field">
@@ -415,16 +454,6 @@
           <label for="opt-certs">Certificates Only</label>
           <input type="radio" name="output_type" id="opt-tents" value="tents">
           <label for="opt-tents">Name Tents Only</label>
-        </div>
-      </div>
-
-      <div class="field">
-        <label>Input Format</label>
-        <div class="toggle-group">
-          <input type="radio" name="input_mode" id="mode-csv" value="csv" checked>
-          <label for="mode-csv">CSV &nbsp;(Name, Lodge, Role)</label>
-          <input type="radio" name="input_mode" id="mode-plain" value="plain">
-          <label for="mode-plain">Plain Text &nbsp;(one name per line)</label>
         </div>
       </div>
     </div>
@@ -441,31 +470,22 @@
           <div class="drop-label"><strong>Choose a file</strong> or drag and drop here</div>
           <div class="file-chosen" id="fileChosen"></div>
         </div>
-      </div>
-
-      <div class="or-divider">or paste directly</div>
-
-      <div class="field">
-        <label for="input_text">Input Data</label>
-        <textarea id="input_text" name="input_text" spellcheck="false"
-          placeholder="Name,Lodge,Role&#10;Cortland Bolles,Wewikit Lodge,Staff&#10;Christopher Groves,Tipisa Lodge,Participant&#10;Brea Baygents,Wewikit Lodge,Participant"></textarea>
-        <div class="format-hint" id="formatHint">
-          CSV: &nbsp;Name,Lodge,Role<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Cortland Bolles,Wewikit Lodge,Staff<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Christopher Groves,Tipisa Lodge,Participant<br>
-		  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Brea Baygents,Wewikit Lodge,Participant
+        <div class="format-hint">
+          CSV format: &nbsp;Name,Lodge,Role<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Donathan Linebrink,Shenandoah Lodge,Staff<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Christopher Groves,Tipisa Lodge,Participant<br><br>
+          <a href="/sample.csv" download="SLS_Sample.csv" style="color:var(--bark); font-weight:600; text-decoration:underline; text-underline-offset:2px;">&#8659; Download sample CSV</a>
         </div>
       </div>
 
-      <button type="submit" class="btn-generate" id="submitBtn">Generate PDF</button>
+      <button type="submit" class="btn-generate" id="submitBtn">Generate Certificates &amp; Name Tents</button>
       <div class="status-bar loading" id="statusLoading">
-              <div class="spinner"></div>
-              <span>Generating your documents&hellip;</span>
-            </div>
-            <div class="status-bar error" id="statusError"></div>
-            <div class="status-bar success" id="statusSuccess"></div>
-          </div>
-</div>
+        <div class="spinner"></div>
+        <span>Generating your documents&hellip;</span>
+      </div>
+      <div class="status-bar error" id="statusError"></div>
+      <div class="status-bar success" id="statusSuccess"></div>
+    </div>
 
   </form>
 </main>
@@ -475,34 +495,46 @@
 </footer>
 
 <script>
-  const form        = document.getElementById('genForm');
-  const submitBtn   = document.getElementById('submitBtn');
-  const fileInput   = document.getElementById('fileInput');
-  const fileChosen  = document.getElementById('fileChosen');
-  const dropZone    = document.getElementById('dropZone');
-  const formatHint  = document.getElementById('formatHint');
-  const statusLoad  = document.getElementById('statusLoading');
-  const statusErr   = document.getElementById('statusError');
-  const statusOk    = document.getElementById('statusSuccess');
-  const modeRadios  = document.querySelectorAll('input[name="input_mode"]');
+  const form         = document.getElementById('genForm');
+  const submitBtn    = document.getElementById('submitBtn');
+  const fileInput    = document.getElementById('fileInput');
+  const fileChosen   = document.getElementById('fileChosen');
+  const dropZone     = document.getElementById('dropZone');
+  const statusLoad   = document.getElementById('statusLoading');
+  const statusErr    = document.getElementById('statusError');
+  const statusOk     = document.getElementById('statusSuccess');
   const outputRadios = document.querySelectorAll('input[name="output_type"]');
+  const regionRadios = document.querySelectorAll('input[name="region"]');
+  const sectionNum   = document.getElementById('section-number');
+  const sectionHidden= document.getElementById('section');
+  const sectionPreview = document.getElementById('sectionPreview');
 
-  // ── Update format hint when mode changes ──
-  const hints = {
-    csv:   'CSV:&nbsp;&nbsp;&nbsp;Name,Lodge,Role<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Donathan Linebrink,Shenandoah,Staff<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;David Gosik,Blue Heron,Participant',
-    plain: 'Plain text: one name per line.<br>Role defaults to Participant; lodge will be blank.'
-  };
-  modeRadios.forEach(r => r.addEventListener('change', () => {
-    formatHint.innerHTML = hints[r.value];
-  }));
+  // ── Section assembly ──
+  function assembleSection() {
+    const region = document.querySelector('input[name="region"]:checked').value;
+    const num    = sectionNum.value.trim().toUpperCase();
+    const full   = num ? `Section ${region}${num}` : '';
+    sectionHidden.value  = full;
+    sectionPreview.textContent = num ? `Section ${region}${num}` : `Section ${region}…`;
+  }
+
+  // Force uppercase as user types, strip non-alphanumeric
+  sectionNum.addEventListener('input', () => {
+    const clean = sectionNum.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    sectionNum.value = clean;
+    assembleSection();
+  });
+
+  regionRadios.forEach(r => r.addEventListener('change', assembleSection));
+  assembleSection(); // initialise on load
 
   // ── Update button label ──
   function updateButtonLabel() {
     const type = document.querySelector('input[name="output_type"]:checked').value;
     const labels = {
-      both: 'Generate Certificates & Name Tents',
+      both:         'Generate Certificates & Name Tents',
       certificates: 'Generate Certificates',
-      tents: 'Generate Name Tents'
+      tents:        'Generate Name Tents'
     };
     submitBtn.textContent = labels[type];
   }
@@ -530,19 +562,28 @@
   });
 
   // ── Status helpers ──
-  function showLoading()  { statusLoad.style.display = 'flex'; statusErr.style.display = 'none'; statusOk.style.display = 'none'; }
-  function showError(msg) { statusLoad.style.display = 'none'; statusErr.style.display = 'block'; statusErr.textContent = msg; }
-  function showSuccess(msg){ statusLoad.style.display = 'none'; statusOk.style.display = 'block'; statusOk.textContent = msg; }
-  function clearStatus()  { [statusLoad, statusErr, statusOk].forEach(el => el.style.display = 'none'); }
+  function showLoading()   { statusLoad.style.display = 'flex'; statusErr.style.display = 'none'; statusOk.style.display = 'none'; }
+  function showError(msg)  { statusLoad.style.display = 'none'; statusErr.style.display = 'block'; statusErr.textContent = msg; }
+  function showSuccess(msg){ statusLoad.style.display = 'none'; statusOk.style.display  = 'block'; statusOk.textContent  = msg; }
+  function clearStatus()   { [statusLoad, statusErr, statusOk].forEach(el => el.style.display = 'none'); }
 
   // ── Form submit ──
   form.addEventListener('submit', async e => {
     e.preventDefault();
     clearStatus();
+
+    // Validate section number
+    if (!sectionNum.value.trim()) {
+      showError('Please enter a section number before generating.');
+      return;
+    }
+
+    // Always CSV mode
+    const data = new FormData(form);
+    data.set('input_mode', 'csv');
+
     submitBtn.disabled = true;
     showLoading();
-
-    const data = new FormData(form);
 
     try {
       const resp = await fetch('/generate', { method: 'POST', body: data });
@@ -553,7 +594,6 @@
         return;
       }
 
-      // Trigger browser download
       const blob = await resp.blob();
       const cd   = resp.headers.get('Content-Disposition') || '';
       const match = cd.match(/filename="?([^";\n]+)"?/);
