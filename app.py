@@ -360,10 +360,14 @@ def fill_and_flatten(template_path, field_values, output_path):
 
     # Detect whether this template has a proper AcroForm /DR (cert) or not (tent).
     root = reader.trailer["/Root"]
-    has_dr = (
-        "/AcroForm" in root
-        and "/DR" in root["/AcroForm"].get_object()
-    )
+    has_dr = False
+    if "/AcroForm" in root and "/DR" in root["/AcroForm"].get_object():
+        annots_raw = page.get("/Annots")
+        annots = annots_raw.get_object() if hasattr(annots_raw, "get_object") else (annots_raw or [])
+        has_dr = any(
+            (ref.get_object() if hasattr(ref, "get_object") else ref).get("/AP") is not None
+            for ref in annots
+        )
 
     if not has_dr:
         # ── Tent path: fitz fills with Helv (tolerates missing /DR) ──────────
