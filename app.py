@@ -571,7 +571,7 @@ INDEX_HTML  = open(_html_path, encoding="utf-8").read()
 
 @app.route("/sample.csv")
 def sample_csv():
-    csv_content = "Name,Lodge,Role\nCortland Bolles,Wewikit Lodge,Staff\nChristopher Groves,Tipisa Lodge,Participant\nBrea Baygents,Wewikit Lodge,Participant\nDonathan Linebrink,Shenandoah Lodge,Staff\n"
+    csv_content = "Name,Lodge,Role\nCortland Bolles,Wewikit Lodge,Staff\nChristopher Grove,Tipisa Lodge,Participant\nBrea Baygents,Wewikit Lodge,Participant\nDonathan Linebrink,Shenandoah Lodge,Staff\n"
     return Response(
         csv_content,
         mimetype="text/csv",
